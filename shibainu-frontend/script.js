@@ -43,6 +43,40 @@ const CONTRACT_ABI = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  {
+    inputs: [{ internalType: "address", name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "spender", type: "address" },
+      { internalType: "uint256", name: "amount", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "tokenOwner", type: "address" },
+      { internalType: "address", name: "spender", type: "address" },
+    ],
+    name: "allowance",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "owner",
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ];
 
 let provider;
@@ -55,10 +89,19 @@ const transferButton = document.getElementById("transferButton");
 const tokenNameField = document.getElementById("tokenName");
 const tokenSupplyField = document.getElementById("tokenSupply");
 const statusDiv = document.getElementById("status");
+const approveButton = document.getElementById("approveButton");
+const checkAllowanceButton = document.getElementById("checkAllowanceButton");
+const allowanceAmountField = document.getElementById("allowanceAmount");
+const tokenBalanceField = document.getElementById("tokenBalance");
+const tokenTotalSupplyField = document.getElementById("tokenTotalSupply");
+const tokenDecimalsField = document.getElementById("tokenDecimals");
+const tokenOwnerField = document.getElementById("tokenOwner");
 
 connectButton.onclick = connectWallet;
 refreshInfoButton.onclick = getTokenInfo;
 transferButton.onclick = transferTokens;
+approveButton.onclick = approveSpender;
+checkAllowanceButton.onclick = checkAllowance;
 
 document.addEventListener("DOMContentLoaded", function () {
   if (!connectButton) console.error("Connect button not found");
@@ -67,6 +110,14 @@ document.addEventListener("DOMContentLoaded", function () {
   if (!tokenNameField) console.error("Token name field not found");
   if (!tokenSupplyField) console.error("Token supply field not found");
   if (!statusDiv) console.error("Status div not found");
+  if (!approveButton) console.error("Approve button not found");
+  if (!checkAllowanceButton) console.error("Check allowance button not found");
+  if (!allowanceAmountField) console.error("Allowance amount field not found");
+  if (!tokenBalanceField) console.error("Token balance field not found");
+  if (!tokenTotalSupplyField)
+    console.error("Token total supply field not found");
+  if (!tokenDecimalsField) console.error("Token decimals field not found");
+  if (!tokenOwnerField) console.error("Token owner field not found");
 
   if (typeof ethers === "undefined") {
     console.error("Ethers.js not loaded!");
@@ -127,10 +178,25 @@ async function getTokenInfo() {
 
   try {
     const name = await tokenContract.name();
+    const symbol = await tokenContract.symbol();
     const totalSupply = await tokenContract.totalSupply();
-    tokenNameField.innerText = name;
+    const decimals = await tokenContract.decimals();
+    const owner = await tokenContract.owner();
+    const walletAddress = await signer.getAddress();
+    const balance = await tokenContract.balanceOf(walletAddress);
 
-    tokenSupplyField.innerText = totalSupply.toString();
+    tokenNameField.innerText = `${name} (${symbol})`;
+    const formattedTotalSupply = ethers.utils.formatUnits(
+      totalSupply,
+      decimals
+    );
+    const formattedBalance = ethers.utils.formatUnits(balance, decimals);
+
+    tokenBalanceField.innerText = formattedBalance;
+    tokenTotalSupplyField.innerText = formattedTotalSupply;
+    tokenDecimalsField.innerText = decimals;
+    tokenOwnerField.innerText = owner;
+
     showStatus("Token info refreshed successfully.", "alert-success");
   } catch (error) {
     showStatus(`Error fetching token info: ${error.message}`, "alert-danger");
@@ -178,9 +244,117 @@ async function transferTokens() {
       `Transfer confirmed in block ${receipt.blockNumber}`,
       "alert-success"
     );
+
+    await getTokenInfo();
   } catch (error) {
     console.error("Transfer error:", error);
     showStatus(`Transfer failed: ${error.message}`, "alert-danger");
+  }
+}
+
+async function approveSpender() {
+  if (!tokenContract) {
+    showStatus(
+      "Contract not initialized. Please connect your wallet first.",
+      "alert-warning"
+    );
+    return;
+  }
+
+  const spenderAddress = document.getElementById("spenderAddress").value.trim();
+  const amount = document.getElementById("approveAmount").value.trim();
+
+  if (!spenderAddress || !amount) {
+    showStatus(
+      "Please enter both spender address and amount.",
+      "alert-warning"
+    );
+    return;
+  }
+
+  if (!ethers.utils.isAddress(spenderAddress)) {
+    showStatus("Invalid spender address format.", "alert-danger");
+    return;
+  }
+
+  try {
+    const decimals = await tokenContract.decimals();
+    const parsedAmount = ethers.utils.parseUnits(amount, decimals);
+
+    showStatus(
+      `Approving ${amount} tokens for ${spenderAddress}...`,
+      "alert-info"
+    );
+
+    const tx = await tokenContract.approve(spenderAddress, parsedAmount);
+    showStatus(
+      `Approval transaction sent! Waiting for confirmation... (Hash: ${tx.hash})`,
+      "alert-info"
+    );
+
+    const receipt = await tx.wait();
+    showStatus(
+      `✅ Successfully approved ${amount} tokens for ${spenderAddress}! (Block: ${receipt.blockNumber})`,
+      "alert-success"
+    );
+  } catch (error) {
+    console.error("Approval error:", error);
+    showStatus(`❌ Approval failed: ${error.message}`, "alert-danger");
+  }
+}
+
+async function checkAllowance() {
+  if (!tokenContract) {
+    showStatus(
+      "Contract not initialized. Please connect your wallet first.",
+      "alert-warning"
+    );
+    return;
+  }
+
+  const ownerAddress = document.getElementById("ownerAddress").value.trim();
+  const spenderAddress = document
+    .getElementById("allowanceSpenderAddress")
+    .value.trim();
+
+  if (!ownerAddress || !spenderAddress) {
+    showStatus(
+      "Please enter both owner and spender addresses.",
+      "alert-warning"
+    );
+    return;
+  }
+
+  if (
+    !ethers.utils.isAddress(ownerAddress) ||
+    !ethers.utils.isAddress(spenderAddress)
+  ) {
+    showStatus("Invalid address format.", "alert-danger");
+    return;
+  }
+
+  try {
+    showStatus("Checking allowance...", "alert-info");
+
+    const decimals = await tokenContract.decimals();
+    const allowance = await tokenContract.allowance(
+      ownerAddress,
+      spenderAddress
+    );
+    const formattedAllowance = ethers.utils.formatUnits(allowance, decimals);
+
+    allowanceAmountField.innerText = formattedAllowance;
+    showStatus(
+      `✅ Current allowance for ${spenderAddress}: ${formattedAllowance} tokens`,
+      "alert-success"
+    );
+  } catch (error) {
+    console.error("Allowance check error:", error);
+    showStatus(
+      `❌ Failed to check allowance: ${error.message}`,
+      "alert-danger"
+    );
+    allowanceAmountField.innerText = "N/A";
   }
 }
 
